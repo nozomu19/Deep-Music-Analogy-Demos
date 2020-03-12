@@ -3,12 +3,12 @@ import torch
 import os
 import numpy as np
 from model import VAE
-#from data_loader import MusicArrayLoader
+from data_loader import MusicArrayLoader
 from torch import optim
 from torch.distributions import kl_divergence, Normal
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ExponentialLR
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import csv
 import pretty_midi as pm
@@ -24,78 +24,6 @@ class MinExponentialLR(ExponentialLR):
             max(base_lr * self.gamma**self.last_epoch, self.min)
             for base_lr in self.base_lrs
         ]
-
-
-class MusicArrayLoader():
-    def __init__(self, path, time_step, chunk_size):
-        self.path = path
-        self.step = time_step
-        self.chunk = chunk_size
-
-    def chunking(self):
-        hoge
-
-    def get_n_epoch(self):
-        hoge
-
-    def shuffle_samples(self):
-        hoge
-
-    def read_path(self):
-        info = []
-        with open(self.path) as f:
-            reader = csv.reader(f)
-            for row in reader:
-                info.append(row)
-        info = info[1:-1]
-        info_T = np.array(info).T.tolist()
-
-        return info_T
-
-    def get_data(self):
-
-        [DRUMMER, SESSION, ID, STYLE, BPM, BEAT_TYPE, TIME_SIGNATURE, MIDI_FILENAME, AUDIO_FILENAME, DURATION, SPLIT] = [0,1,2,3,4,5,6,7,8,9,10]
-        data_list = []
-        data_list = self.read_path()
-
-        steps = self.step
-        MultiHotDataList = []
-
-        for index in range(data_list[MIDI_FILENAME]):
-            MultiHot = np.zeros(81, steps).tolist()
-            pattern_path = "../../groove/onesec_midi/" + data_list[MIDI_FILENAME][index]
-            midi_pattern = pm.PrettyMIDI(pattern_path)
-            instruments = midi_pattern.instruments
-            bpm = int(data_list[BPM][index])
-            notes = instruments[0].notes
-            section = 2 * (60 * 4)/bpm
-            beat = section / steps
-            for note in notes:
-                for step in range(steps):
-                    if note.start - beat * step < 0:
-                        position = note.start - (step - 1) * beat
-                        if position >= 0 and position <= beat/2:
-                            MultiHot[step-1][note.pitch] = note.velocity/127
-                            break
-                        elif position >= beat/2 and position <= beat:
-                            MultiHot[step][note.pitch] = note.velocity/127
-                            break
-
-            MultiHotDataList.append(MultiHot)
-
-        return MultiHotDataList
-
-    def get_batch(self, batch_size):
-
-        data_list = self.get_data()
-        batch_list = []
-
-        for num in range(batch_size):
-            batch_list.append(random.choice(data_list))
-
-        return np.array(batch_list)
-
-
 
 # some initialization
 with open('model_config.json') as f:
@@ -122,8 +50,8 @@ else:
     print('CPU mode')
 step, pre_epoch = 0, 0
 model.train()
-dl = MusicArrayLoader(args['data_path'], args['time_step'], 16)
-dl.chunking()
+dl = MusicArrayLoader(args['data_path'], args['time_step'], 64)
+# dl.chunking()
 
 # end of initialization
 
@@ -162,10 +90,11 @@ def loss_function(recon,
 def train(step):
     batch = dl.get_batch(args['batch_size'])
     print(batch.shape)
-    encode_tensor = torch.from_numpy(batch).float()
+    encode_tensor = batch
     # c = torch.from_numpy(c).float()
-    rhythm_target = np.expand_dims(batch[:, :, :-2].sum(-1), -1)
-    rhythm_target = np.concatenate((rhythm_target, batch[:, :, -2:]), -1)
+    batch_ar = batch.numpy()
+    rhythm_target = np.expand_dims(batch_ar[:, :, :-2].sum(-1), -1)
+    rhythm_target = np.concatenate((rhythm_target, batch_ar[:, :, -2:]), -1)
     rhythm_target = torch.from_numpy(rhythm_target).float()
     rhythm_target = rhythm_target.view(-1, rhythm_target.size(-1)).max(-1)[1]
     target_tensor = encode_tensor.view(-1, encode_tensor.size(-1)).max(-1)[1]
@@ -196,15 +125,19 @@ def train(step):
     writer.add_scalar('batch_loss', loss.item(), step)
     if args['decay'] > 0:
         scheduler.step()
-    dl.shuffle_samples()
+    # dl.shuffle_samples()
     return step
 
+def main():
+    step = 0
+    epoch = 0
+    for epoch in range(args['n_epochs']):
+        step = train(step)
+        if epoch == args['n_epochs']-1:
+            torch.save(model.cpu().state_dict(), save_path)
+            if torch.cuda.is_available():
+                model.cuda()
+            print('Model saved!')
 
-while dl.get_n_epoch() < args['n_epochs']:
-    step = train(step)
-    if dl.get_n_epoch() != pre_epoch:
-        pre_epoch = dl.get_n_epoch()
-        torch.save(model.cpu().state_dict(), save_path)
-        if torch.cuda.is_available():
-            model.cuda()
-        print('Model saved!')
+if __name__ == '__main__':
+    main()

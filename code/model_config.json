@@ -1,7 +1,7 @@
 {
     "batch_size": 128,
     "n_epochs": 100,
-    "data_path": "../../groove/info.csv",
+    "data_path": "../../groove/onesec_midi/info.csv",
     "lr": 1e-3,
     "decay": 0.9999,
     "if_parallel": true,
